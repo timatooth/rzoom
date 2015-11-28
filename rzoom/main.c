@@ -47,6 +47,16 @@ int main(int argc, char **argv) {
     PixelWand *pixWand;
     DrawingWand *dwand;
     
+    //analysis vars
+    long tileSizeSum = 0;
+    int tileCount = 0;
+    int maxSize = 0;
+    char biggestTile[30];
+    FILE *statsFile = fopen("stats.csv", "w");
+    
+    fprintf(statsFile, "\"x_coord\", \"y_coord\", \"size\"\n");
+    
+    
     printf("connecting to redis server\n");
     struct timeval timeout = {1, 500000}; // 1.5 seconds
     c = redisConnectWithTimeout(hostname, port, timeout);
@@ -93,6 +103,14 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Tile at %s is corrupt! Skipping...\n", reply->element[j]->str);
             continue;
         }
+        
+        //sum size
+        tileSizeSum += tileReply->len;
+        tileCount += 1;
+        if(tileReply->len > maxSize){
+            maxSize = tileReply->len;
+            strcpy(biggestTile, reply->element[j]->str);
+        }
 
         status = MagickThumbnailImage(wand, size, size);
         if (status == MagickFalse){
@@ -130,15 +148,24 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Draw to mega canvas failed\n");
             ThrowWandException(wand);
         }
+        
+        //write to csv file size
+        fprintf(statsFile, "%d, %d, %d\n", x, y, tileReply->len / 1000 );
+        
         DestroyMagickWand(wand);
         DestroyDrawingWand(dwand);
         freeReplyObject(tileReply);
+        
+
     }
     
-    printf("Done compisiteing tiles writing out bigfile...\n");
+    printf("Total tiles: %d Average size: %ld kb\n", tileCount, (tileSizeSum / tileCount) / 1000);
+    printf("Largest tile %s @ %dkb\n", biggestTile, maxSize / 1000);
+    printf("Done loading tiles. Writing out megafile.png...\n");
+    
     status = MagickWriteImage(masterWand, "megafile.png");
     if (status == MagickFalse){
-        fprintf(stderr, "bigfile write failed\n");
+        fprintf(stderr, "megafile.png write failed\n");
         ThrowWandException(wand);
     } else {
         printf("Done!\n");
@@ -154,6 +181,7 @@ int main(int argc, char **argv) {
     
     
     MagickWandTerminus();
+    fclose(statsFile);
     
     return EXIT_SUCCESS;
 }
